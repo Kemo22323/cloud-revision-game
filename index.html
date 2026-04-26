@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cloud Exam Quest - 1-Day Cram Optimizer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          ink: '#05070d',
+          panel: '#0b1020',
+          panel2: '#11172b',
+          edge: '#1f2944',
+          neon: '#22d3ee',
+          neon2: '#a78bfa',
+          gold: '#facc15',
+          good: '#34d399',
+          bad:  '#f87171'
+        },
+        fontFamily: {
+          mono: ['"JetBrains Mono"', '"Fira Code"', 'Menlo', 'Consolas', 'monospace']
+        },
+        boxShadow: {
+          glow: '0 0 0 1px rgba(34,211,238,0.15), 0 8px 30px -10px rgba(34,211,238,0.35)'
+        }
+      }
+    }
+  }
+</script>
+<link rel="stylesheet" href="styles/app.css" />
+</head>
+<body class="bg-ink text-slate-200 font-sans antialiased min-h-screen">
+
+<div id="bg-grid" aria-hidden="true"></div>
+
+<header class="relative z-10 max-w-6xl mx-auto px-5 pt-6 pb-3 flex items-center justify-between">
+  <div class="flex items-center gap-3">
+    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-neon to-neon2 grid place-items-center shadow-glow">
+      <span class="text-ink font-black text-xl">CQ</span>
+    </div>
+    <div>
+      <h1 class="text-lg sm:text-xl font-bold tracking-tight">Cloud Exam Quest</h1>
+      <p class="text-xs text-slate-400 -mt-0.5">1-Day Cram Optimizer · 8 Labs · ~300 Questions</p>
+    </div>
+  </div>
+  <div class="hidden sm:flex items-center gap-2">
+    <button id="reset-btn" class="text-xs px-3 py-1.5 rounded-lg border border-edge text-slate-400 hover:text-bad hover:border-bad/60 transition" title="Reset all progress">Reset</button>
+    <span class="text-xs text-slate-500">v1.0</span>
+  </div>
+</header>
+
+<main id="app" class="relative z-10 max-w-6xl mx-auto px-5 pb-24"></main>
+
+<footer class="relative z-10 max-w-6xl mx-auto px-5 py-6 text-center text-xs text-slate-500">
+  Built strictly from your 8 PPTX labs + 2 Lab 5 hands-on markdowns. Offline-ready.
+  <span class="hidden sm:inline">· Shortcuts: <kbd class="px-1.5 py-0.5 rounded bg-panel2 border border-edge">1-4</kbd> answer · <kbd class="px-1.5 py-0.5 rounded bg-panel2 border border-edge">Enter</kbd> next · <kbd class="px-1.5 py-0.5 rounded bg-panel2 border border-edge">Esc</kbd> home · in Cram: <kbd class="px-1.5 py-0.5 rounded bg-panel2 border border-edge">B</kbd> prev · <kbd class="px-1.5 py-0.5 rounded bg-panel2 border border-edge">S</kbd> skip section · <kbd class="px-1.5 py-0.5 rounded bg-panel2 border border-edge">L</kbd> skip lab</span>
+</footer>
+
+<div id="toast-host" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 items-center pointer-events-none"></div>
+
+<script src="data/labs.js"></script>
+<script src="data/cheatsheets.js"></script>
+<script src="data/questions.js"></script>
+<script src="scripts/matcher.js"></script>
+<script src="scripts/ui.js"></script>
+<script src="scripts/modes.js"></script>
+<script src="scripts/app.js"></script>
+</body>
+</html>
