@@ -251,16 +251,21 @@
       ]),
       window.UI.el('div', { class: 'mt-4' }, [window.UI.progressBar(correct, total)]),
       window.UI.el('div', { class: 'flex flex-wrap gap-2 mt-5' }, [
-        window.UI.el('button', { class: 'btn btn-primary', on: { click: () => window.App.go('dashboard') } }, '🏠 Back to dashboard'),
+        opts.onContinue
+          ? window.UI.el('button', { class: 'btn btn-primary', on: { click: opts.onContinue } }, opts.continueLabel || 'Continue ⏎')
+          : window.UI.el('button', { class: 'btn btn-primary', on: { click: () => window.App.go('dashboard') } }, '🏠 Back to dashboard'),
+        opts.onContinue
+          ? window.UI.el('button', { class: 'btn btn-ghost', on: { click: () => window.App.go('dashboard') } }, '🏠 Dashboard')
+          : null,
         wrong > 0 ? window.UI.el('button', { class: 'btn btn-ghost', on: { click: () => window.Modes.review(session.missed.slice()) } }, '🩹 Review missed (' + wrong + ')') : null,
         opts.replay ? window.UI.el('button', { class: 'btn btn-ghost', on: { click: opts.replay } }, '🔁 Replay') : null
       ])
     ]);
     main.appendChild(card);
 
-    // Hot-keys: H for home, R for review missed
+    // Hot-keys: Enter goes to continue (if any) else home; R for review missed
     window.App._setHotkeys({
-      Enter: () => window.App.go('dashboard'),
+      Enter: () => { if (opts.onContinue) opts.onContinue(); else window.App.go('dashboard'); },
       r: () => { if (wrong > 0) window.Modes.review(session.missed.slice()); }
     });
   }
@@ -367,6 +372,110 @@
     ]);
   }
 
+  // ---- Cram Mode progress persistence ----
+  // We save a stable resume point (cheat-sheet of the current section, or the
+  // lab-complete interstitial) to localStorage so the user can pick up where
+  // they left off instead of always restarting from Lab 1, Section 1.
+  function saveCramProgress(state) {
+    if (!state) return;
+    if (state.labIdx >= window.LABS.length) { clearCramProgress(); return; }
+    // Only persist stable navigation points; we never resume mid-quiz, so a
+    // mid-quiz exit will resume from this section's cheat sheet next time.
+    const stablePhase = state.phase === 'lab-complete' ? 'lab-complete' : 'sheet';
+    window.App.setSetting('cramProgress', {
+      labIdx: state.labIdx,
+      sectionIdx: state.sectionIdx,
+      phase: stablePhase,
+      savedAt: Date.now()
+    });
+  }
+  function clearCramProgress() { window.App.setSetting('cramProgress', null); }
+  function loadCramProgress() {
+    const p = window.App.getSetting && window.App.getSetting('cramProgress');
+    if (!p || typeof p.labIdx !== 'number' || typeof p.sectionIdx !== 'number') return null;
+    if (p.labIdx === 0 && p.sectionIdx === 0 && (p.phase === 'sheet' || !p.phase)) return null;
+    if (p.labIdx >= window.LABS.length) return null;
+    const lab = window.LABS[p.labIdx];
+    if (!lab) return null;
+    const sheet = window.CHEATSHEETS[lab.id];
+    const sections = sheet ? sheet.sections : [];
+    if (p.phase !== 'lab-complete' && (p.sectionIdx < 0 || p.sectionIdx >= sections.length)) return null;
+    return p;
+  }
+
+  // Total number of cheat-sheet sections across all labs (for the progress meter).
+  function totalCramSections() {
+    let n = 0;
+    for (const lab of window.LABS) {
+      const cs = window.CHEATSHEETS[lab.id];
+      if (cs && cs.sections) n += cs.sections.length;
+    }
+    return n;
+  }
+  function sectionsCompletedBefore(labIdx, sectionIdx) {
+    let n = 0;
+    for (let i = 0; i < labIdx && i < window.LABS.length; i++) {
+      const cs = window.CHEATSHEETS[window.LABS[i].id];
+      if (cs && cs.sections) n += cs.sections.length;
+    }
+    return n + Math.max(0, sectionIdx);
+  }
+
+  // Resume prompt shown when the user re-enters Cram Mode and has a saved spot.
+  function showCramResumePrompt(saved) {
+    const main = document.getElementById('app');
+    main.innerHTML = '';
+    const lab = window.LABS[saved.labIdx];
+    const sheet = window.CHEATSHEETS[lab.id];
+    const sections = sheet ? sheet.sections : [];
+    const section = sections[saved.sectionIdx];
+    const total = totalCramSections();
+    const done = sectionsCompletedBefore(saved.labIdx, saved.sectionIdx);
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    const where = saved.phase === 'lab-complete'
+      ? 'Lab complete · ' + lab.icon + ' Lab ' + lab.id + ' · ' + lab.title
+      : (lab.icon + ' Lab ' + lab.id + ' · ' + lab.title +
+         (section ? ' · section ' + (saved.sectionIdx + 1) + ' / ' + sections.length + ' (' + section.title + ')' : ''));
+    const when = saved.savedAt ? new Date(saved.savedAt).toLocaleString() : null;
+
+    main.appendChild(window.UI.pageHeader('Cram Mode', 'Pick up where you left off', {}));
+
+    const continueFn = () => {
+      cramRun({ labIdx: saved.labIdx, sectionIdx: saved.sectionIdx, phase: saved.phase || 'sheet' });
+    };
+    const startOverFn = () => {
+      clearCramProgress();
+      cramRun({ labIdx: 0, sectionIdx: 0, phase: 'sheet' });
+    };
+
+    main.appendChild(window.UI.el('div', { class: 'card p-6' }, [
+      window.UI.el('div', { class: 'flex flex-wrap items-center gap-4 mb-3' }, [
+        window.UI.el('div', { class: 'text-3xl' }, lab.icon),
+        window.UI.el('div', null, [
+          window.UI.el('div', { class: 'text-xs text-slate-400 uppercase tracking-wide' }, 'You left off at'),
+          window.UI.el('div', { class: 'text-base font-semibold text-slate-100 mt-0.5' }, where),
+          when ? window.UI.el('div', { class: 'text-xs text-slate-500 mt-0.5' }, 'Saved ' + when) : null
+        ])
+      ]),
+      window.UI.el('div', { class: 'mt-2' }, [window.UI.progressBar(done, total)]),
+      window.UI.el('div', { class: 'text-xs text-slate-400 mt-2' }, done + ' of ' + total + ' sections done · ' + pct + '%'),
+      window.UI.el('div', { class: 'flex flex-wrap gap-2 mt-5' }, [
+        window.UI.el('button', { class: 'btn btn-primary', on: { click: continueFn } }, '🚀 Continue from here ⏎'),
+        window.UI.el('button', { class: 'btn btn-ghost', on: { click: startOverFn } }, '🔄 Start over'),
+        window.UI.el('button', { class: 'btn btn-ghost', on: { click: () => window.App.go('dashboard') } }, '🏠 Dashboard')
+      ])
+    ]));
+
+    window.App._setHotkeys({ Enter: continueFn });
+  }
+
+  // Public Cram entry point - shows resume prompt if applicable, else starts fresh.
+  function cramEntry() {
+    const saved = loadCramProgress();
+    if (saved) return showCramResumePrompt(saved);
+    cramRun({ labIdx: 0, sectionIdx: 0, phase: 'sheet' });
+  }
+
   // Wire up the cram navigation hotkeys (merge with whatever hot-keys the page sets).
   function cramHotkeys(state, extras) {
     const keys = Object.assign({
@@ -383,8 +492,10 @@
   // Cram Mode (FLAGSHIP) - linear walkthrough by lab and section.
   // For each lab section: show cheat sheet card, then a small batch of related questions (4-6).
   function cramRun(state) {
+    saveCramProgress(state);
     const labs = window.LABS;
     if (state.labIdx >= labs.length) {
+      clearCramProgress();
       const main = document.getElementById('app');
       main.innerHTML = '';
       main.appendChild(window.UI.pageHeader('Cram Mode complete!', 'You scrolled through every lab.', {}));
@@ -472,14 +583,20 @@
       window.UI.el('p', { class: 'text-sm text-slate-300' }, isLastLab
         ? 'That was the last lab! Run Smart Review to clean up missed questions, then take the Exam Simulator.'
         : 'Great work. Ready to keep going?'),
-      window.UI.el('div', { class: 'flex flex-wrap gap-2 mt-5' }, [
-        isLastLab
-          ? window.UI.el('button', { class: 'btn btn-primary', on: { click: () => { state.labIdx++; cramRun(state); } } }, '🏁 Finish Cram ⏎')
-          : window.UI.el('button', { class: 'btn btn-primary', on: { click: () => cramAdvanceLab(state) } }, 'Next lab → ⏎'),
-        window.UI.el('button', { class: 'btn btn-ghost', on: { click: () => { state.sectionIdx = 0; state.phase = 'sheet'; cramRun(state); } } }, '🔁 Replay this lab'),
-        allMissed.length ? window.UI.el('button', { class: 'btn btn-ghost', on: { click: () => window.Modes.review(allMissed) } }, '🩹 Review missed (' + allMissed.length + ')') : null,
-        window.UI.el('button', { class: 'btn btn-ghost', on: { click: () => window.App.go('dashboard') } }, '🏠 Dashboard')
-      ])
+      window.UI.el('div', { class: 'flex flex-wrap gap-2 mt-5' }, (function () {
+        const continueFn = isLastLab
+          ? () => { state.labIdx++; cramRun(state); }
+          : () => cramAdvanceLab(state);
+        const continueLabel = isLastLab ? '🏁 Finish Cram ⏎' : '🚀 Continue Cram - next lab → ⏎';
+        return [
+          isLastLab
+            ? window.UI.el('button', { class: 'btn btn-primary', on: { click: continueFn } }, '🏁 Finish Cram ⏎')
+            : window.UI.el('button', { class: 'btn btn-primary', on: { click: continueFn } }, 'Next lab → ⏎'),
+          window.UI.el('button', { class: 'btn btn-ghost', on: { click: () => { state.sectionIdx = 0; state.phase = 'sheet'; cramRun(state); } } }, '🔁 Replay this lab'),
+          allMissed.length ? window.UI.el('button', { class: 'btn btn-ghost', on: { click: () => window.Modes.review(allMissed, { onContinue: continueFn, continueLabel }) } }, '🩹 Review missed (' + allMissed.length + ')') : null,
+          window.UI.el('button', { class: 'btn btn-ghost', on: { click: () => window.App.go('dashboard') } }, '🏠 Dashboard')
+        ];
+      })())
     ]);
     main.appendChild(card);
 
@@ -493,10 +610,14 @@
       main.appendChild(upNext);
     }
 
+    const continueFn = isLastLab
+      ? () => { state.labIdx++; cramRun(state); }
+      : () => cramAdvanceLab(state);
+    const continueLabel = isLastLab ? '🏁 Finish Cram ⏎' : '🚀 Continue Cram - next lab → ⏎';
     window.App._setHotkeys({
-      Enter: () => { isLastLab ? (state.labIdx++, cramRun(state)) : cramAdvanceLab(state); },
-      r: () => { if (allMissed.length) window.Modes.review(allMissed); },
-      R: () => { if (allMissed.length) window.Modes.review(allMissed); }
+      Enter: continueFn,
+      r: () => { if (allMissed.length) window.Modes.review(allMissed, { onContinue: continueFn, continueLabel }); },
+      R: () => { if (allMissed.length) window.Modes.review(allMissed, { onContinue: continueFn, continueLabel }); }
     });
   }
 
@@ -517,12 +638,16 @@
       main.innerHTML = '';
       main.appendChild(window.UI.pageHeader('Section recap', lab.icon + ' ' + lab.title + ' · ' + section.title, {}));
       main.appendChild(cramNavBar(state, lab, sections));
+      const continueLabel = isLastSection
+        ? (isLastLab ? '🏁 Continue Cram - finish ⏎' : '🎉 Continue Cram - finish lab ⏎')
+        : '🚀 Continue Cram - next section ⏎';
+      const continueFn = () => cramSkipSection(state);
       main.appendChild(window.UI.el('div', { class: 'card p-6' }, [
         window.UI.el('div', { class: 'text-3xl font-extrabold text-neon' }, acc + '%'),
         window.UI.el('div', { class: 'text-sm text-slate-400' }, session.correct + ' correct · ' + session.missed.length + ' missed · ' + total + ' total'),
         window.UI.el('div', { class: 'flex flex-wrap gap-2 mt-4' }, [
-          window.UI.el('button', { class: 'btn btn-primary', on: { click: () => cramSkipSection(state) } }, primaryLabel),
-          session.missed.length ? window.UI.el('button', { class: 'btn btn-ghost', on: { click: () => window.Modes.review(session.missed.slice()) } }, '🩹 Review missed') : null
+          window.UI.el('button', { class: 'btn btn-primary', on: { click: continueFn } }, primaryLabel),
+          session.missed.length ? window.UI.el('button', { class: 'btn btn-ghost', on: { click: () => window.Modes.review(session.missed.slice(), { onContinue: continueFn, continueLabel }) } }, '🩹 Review missed') : null
         ])
       ]));
       cramHotkeys(state, { Enter: () => cramSkipSection(state) });
@@ -698,8 +823,11 @@
     });
   }
 
-  // Smart Review - replay only missed questions
-  function review(forcedIds) {
+  // Smart Review - replay only missed questions.
+  // contOpts (optional): { onContinue: fn, continueLabel: 'string' } so callers
+  // (e.g. Cram Mode section/lab recap) can route the user back to where they were.
+  function review(forcedIds, contOpts) {
+    contOpts = contOpts || {};
     const ids = forcedIds || window.App.getMissedIds();
     if (!ids.length) {
       const main = document.getElementById('app');
@@ -707,8 +835,12 @@
       main.appendChild(window.UI.pageHeader('Smart Review', 'No missed questions yet - play a round first!', {}));
       main.appendChild(window.UI.el('div', { class: 'card p-6' }, [
         window.UI.el('p', { class: 'text-slate-300' }, 'Once you miss a question in any mode, it lands here. Get it right twice in a row to clear it.'),
-        window.UI.el('button', { class: 'btn btn-primary mt-4', on: { click: () => window.App.go('dashboard') } }, '🏠 Dashboard')
+        window.UI.el('div', { class: 'flex flex-wrap gap-2 mt-4' }, [
+          contOpts.onContinue ? window.UI.el('button', { class: 'btn btn-primary', on: { click: contOpts.onContinue } }, contOpts.continueLabel || 'Continue ⏎') : null,
+          window.UI.el('button', { class: 'btn ' + (contOpts.onContinue ? 'btn-ghost' : 'btn-primary'), on: { click: () => window.App.go('dashboard') } }, '🏠 Dashboard')
+        ])
       ]));
+      if (contOpts.onContinue) window.App._setHotkeys({ Enter: () => contOpts.onContinue() });
       return;
     }
     const items = ids.map(id => Q().find(q => q.id === id)).filter(Boolean);
@@ -716,7 +848,9 @@
       title: 'Smart Review',
       subtitle: items.length + ' missed question' + (items.length === 1 ? '' : 's'),
       finishTitle: 'Smart Review complete',
-      replay: () => review(forcedIds)
+      replay: () => review(forcedIds, contOpts),
+      onContinue: contOpts.onContinue,
+      continueLabel: contOpts.continueLabel
     });
   }
 
@@ -849,7 +983,8 @@
 
   // Public exports
   window.Modes = {
-    cram: () => cramRun({ labIdx: 0, sectionIdx: 0, phase: 'sheet' }),
+    cram: cramEntry,
+    cramFresh: () => { clearCramProgress(); cramRun({ labIdx: 0, sectionIdx: 0, phase: 'sheet' }); },
     quick, labPick, labRun, command, review, exam,
     sheets, sheet
   };
